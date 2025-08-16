@@ -38,7 +38,6 @@ if not has_data:
 # Mostrar información básica del dataset
 st.sidebar.header("📊 Información del Dataset")
 st.sidebar.write(f"**Total de resultados:** {len(df)}")
-st.sidebar.write(f"**Columnas:** Date, Liga, Local, Visitante, Resultado_Real, Predicción, Acierto, Profit, ROI")
 
 # Filtros
 st.sidebar.header("🔧 Filtros")
