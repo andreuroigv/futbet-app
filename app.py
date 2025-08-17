@@ -110,14 +110,6 @@ if len(df_filtrado) > 0:
     col4.metric("📈 Yield", f"{round(100 * yield_total, 2)}%")
     col5.metric("📊 Profit Factor", round(profit_factor, 2) if profit_factor != float("inf") else "∞")
 
-    # Segunda fila de métricas
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("📅 Última actualización", df_filtrado['Date'].max().strftime('%Y-%m-%d'))
-    col2.metric("💵 ROI Promedio", f"{round(roi_promedio, 2)}%")
-    col3.metric("💚 Ganancias", f"+{round(ganancias, 2)}")
-    col4.metric("💔 Pérdidas", f"-{round(perdidas, 2)}")
-    col5.metric("📏 Días de análisis", (df_filtrado['Date'].max() - df_filtrado['Date'].min()).days + 1)
-
 else:
     st.warning("No hay datos para mostrar con los filtros seleccionados")
     st.stop()
