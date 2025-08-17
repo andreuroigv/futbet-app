@@ -289,21 +289,3 @@ df_display = df_display[columnas_display]
 df_display = df_display.sort_values('Date', ascending=False)
 
 st.dataframe(df_display, use_container_width=True)
-
-# -------------------------
-# Información adicional
-# -------------------------
-st.markdown("---")
-st.markdown("🔄 **Los datos se actualizan automáticamente cada 4 horas**")
-
-with st.expander("ℹ️ Información sobre los datos"):
-    st.write("**Fuente de datos:** Hoja 'Results' del archivo predictions_tracker.xlsx")
-    st.write("**Estructura:**")
-    st.write("- **Date:** Fecha del partido")
-    st.write("- **Liga:** Competición del partido")
-    st.write("- **Local/Visitante:** Equipos que juegan")
-    st.write("- **Predicción:** Pronóstico realizado")
-    st.write("- **Resultado_Real:** Resultado real del partido")
-    st.write("- **Acierto:** Si la predicción fue correcta")
-    st.write("- **Profit:** Ganancia/pérdida en unidades")
-    st.write("- **ROI:** Return on Investment en porcentaje")
