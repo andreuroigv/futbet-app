@@ -191,15 +191,10 @@ else:
 st.subheader("📋 Historial completo de apuestas")
 df_hist = df_filtrado.sort_values("fecha", ascending=False).copy()
 cols_show = []
-for c in ["fecha", "Liga", "Local", "Visitante", "Prediccion", "Result", "Resultado_Real", "Cuota_Bet365", "Stake", "Profit", "ROI", "Status", "Enviado"]:
+for c in ["fecha", "Liga", "Local", "Visitante", "Prediccion", "Result", "Resultado_Real", "Cuota_Bet365", "Stake", "Profit", "Status", "Enviado"]:
     if c in df_hist.columns:
         cols_show.append(c)
 if cols_show:
     st.dataframe(df_hist[cols_show], use_container_width=True)
 else:
     st.info("No hay columnas disponibles para mostrar historial.")
-
-# ===================== Diagnóstico opcional =====================
-with st.expander("🔧 Diagnóstico (columnas y tipos)"):
-    st.write("Columnas:", list(df.columns))
-    st.write(df.dtypes.astype(str))
