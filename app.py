@@ -1,291 +1,268 @@
+# app.py
 import pandas as pd
 import streamlit as st
-import plotly.express as px
-from datetime import datetime
 import plotly.graph_objects as go
+import numpy as np
 
-st.set_page_config(page_title="Football Tracker", layout="wide")
-st.title("⚽ Seguimiento de Predicciones de Fútbol")
+st.set_page_config(page_title="Football Bets Tracker", layout="wide")
+st.title("⚽️ Seguimiento de Apuestas de Fútbol")
 
 if st.button("🔁 Actualizar datos"):
     st.cache_data.clear()
 
-# Leer datos de la hoja Results
-@st.cache_data
-def cargar_datos():
+# -----------------------------
+# Utilidades
+# -----------------------------
+COL_SHEET = "Predictions"
+FILE_PATH = "predictions_tracker.xlsx"
+
+MESES_ES = {
+    "January": "Enero", "February": "Febrero", "March": "Marzo",
+    "April": "Abril", "May": "Mayo", "June": "Junio",
+    "July": "Julio", "August": "Agosto", "September": "Septiembre",
+    "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
+}
+
+def _to_float(x, default=np.nan):
+    if pd.isna(x):
+        return default
+    s = str(x).strip().replace(",", ".").replace("%", "")
     try:
-        # Leer la hoja Results que contiene los datos procesados
-        df_results = pd.read_excel("predictions_tracker.xlsx", sheet_name="Results")
-        
-        if not df_results.empty:
-            # Convertir fecha a datetime
-            df_results['Date'] = pd.to_datetime(df_results['Date'])
-            return df_results, True
-        else:
-            st.warning("No hay resultados procesados aún en la hoja Results")
-            return pd.DataFrame(), False
-            
-    except Exception as e:
-        st.warning(f"No se pudo cargar el archivo predictions_tracker.xlsx: {str(e)}")
-        return pd.DataFrame(), False
+        return float(s)
+    except Exception:
+        return default
 
-df, has_data = cargar_datos()
+def _norm_str(s):
+    if pd.isna(s):
+        return ""
+    return str(s).strip()
 
-if not has_data:
-    st.info("Esperando resultados procesados...")
-    st.stop()
-
-# Mostrar información básica del dataset
-st.sidebar.header("📊 Información del Dataset")
-st.sidebar.write(f"**Total de resultados:** {len(df)}")
-
-# Filtros
-st.sidebar.header("🔧 Filtros")
-
-# Filtros de fecha
-fecha_inicio = st.sidebar.date_input("Desde", value=df['Date'].min().date())
-fecha_fin = st.sidebar.date_input("Hasta", value=df['Date'].max().date())
-filtro_fecha = (df['Date'] >= pd.to_datetime(fecha_inicio)) & (df['Date'] <= pd.to_datetime(fecha_fin))
-df_filtrado = df[filtro_fecha].copy()
-
-# Filtro por liga
-ligas_unicas = df['Liga'].dropna().unique()
-liga_seleccionada = st.sidebar.multiselect(
-    "Filtrar por liga/competición",
-    options=sorted(ligas_unicas),
-    default=sorted(ligas_unicas)
-)
-
-if liga_seleccionada:
-    df_filtrado = df_filtrado[df_filtrado['Liga'].isin(liga_seleccionada)]
-
-# Filtro por equipo
-equipos_unicos = set()
-equipos_unicos.update(df['Local'].dropna().unique())
-equipos_unicos.update(df['Visitante'].dropna().unique())
-
-equipo_seleccionado = st.sidebar.selectbox(
-    "Filtrar por equipo", 
-    ["Todos"] + sorted(list(equipos_unicos))
-)
-
-if equipo_seleccionado != "Todos":
-    filtro_equipo = (df_filtrado['Local'] == equipo_seleccionado) | (df_filtrado['Visitante'] == equipo_seleccionado)
-    df_filtrado = df_filtrado[filtro_equipo]
-
-# Filtro por tipo de resultado
-tipo_resultado = st.sidebar.selectbox(
-    "Filtrar por resultado",
-    ["Todos", "Solo Aciertos", "Solo Fallos"]
-)
-
-if tipo_resultado == "Solo Aciertos":
-    df_filtrado = df_filtrado[df_filtrado['Acierto'] == True]
-elif tipo_resultado == "Solo Fallos":
-    df_filtrado = df_filtrado[df_filtrado['Acierto'] == False]
-
-# -------------------------
-# KPIs Principales
-# -------------------------
-st.subheader("📊 Métricas Principales")
-
-if len(df_filtrado) > 0:
-    total_predicciones = len(df_filtrado)
-    aciertos_totales = (df_filtrado['Acierto'] == True).sum()
-    porcentaje_aciertos = (aciertos_totales / total_predicciones * 100) if total_predicciones > 0 else 0
-    
-    total_unidades = df_filtrado['Profit'].sum()
-    yield_total = total_unidades / total_predicciones if total_predicciones > 0 else 0
-    
-    ganancias = df_filtrado[df_filtrado['Profit'] > 0]['Profit'].sum()
-    perdidas = -df_filtrado[df_filtrado['Profit'] < 0]['Profit'].sum()
-    profit_factor = ganancias / perdidas if perdidas > 0 else float("inf")
-    
-    roi_promedio = df_filtrado['ROI'].mean()
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("🎯 Predicciones totales", total_predicciones)
-    col2.metric("✅ Aciertos", f"{aciertos_totales} ({porcentaje_aciertos:.1f}%)")
-    col3.metric("💰 Unidades ganadas", round(total_unidades, 2))
-    col4.metric("📈 Yield", f"{round(100 * yield_total, 2)}%")
-    col5.metric("📊 Profit Factor", round(profit_factor, 2) if profit_factor != float("inf") else "∞")
-
-else:
-    st.warning("No hay datos para mostrar con los filtros seleccionados")
-    st.stop()
-
-# -------------------------
-# Análisis temporal
-# -------------------------
-st.subheader("📈 Evolución Temporal")
-
-tab1, tab2 = st.tabs(["📅 Resumen Mensual", "📊 Evolución Semanal"])
-
-with tab1:
-    df_filtrado["mes"] = df_filtrado["Date"].dt.to_period("M").dt.to_timestamp()
-
-    resumen_mensual = df_filtrado.groupby("mes").agg({
-        'Profit': ['count', 'sum'],
-        'Acierto': lambda x: (x == True).sum()
-    }).reset_index()
-
-    # Aplanar columnas multinivel
-    resumen_mensual.columns = ['mes', 'predicciones', 'unidades', 'aciertos']
-    resumen_mensual['fallos'] = resumen_mensual['predicciones'] - resumen_mensual['aciertos']
-    resumen_mensual["yield"] = (resumen_mensual["unidades"] / resumen_mensual["predicciones"] * 100).round(2)
-    resumen_mensual["accuracy"] = (resumen_mensual["aciertos"] / resumen_mensual["predicciones"] * 100).round(1)
-
-    # Mapeo de meses al español
-    meses_es = {
-        "January": "Enero", "February": "Febrero", "March": "Marzo",
-        "April": "Abril", "May": "Mayo", "June": "Junio",
-        "July": "Julio", "August": "Agosto", "September": "Septiembre",
-        "October": "Octubre", "November": "Noviembre", "December": "Diciembre"
+def _norm_outcome(x: str) -> str:
+    """Normaliza outcomes para comparaciones si hiciera falta."""
+    t = _norm_str(x).lower()
+    aliases = {
+        "home win": "home win", "1": "home win", "home": "home win", "local": "home win", "h": "home win",
+        "away win": "away win", "2": "away win", "away": "away win", "visitante": "away win", "a": "away win",
+        "draw": "draw", "empate": "draw", "x": "draw",
     }
+    return aliases.get(t, t)
 
-    resumen_mensual["Mes"] = resumen_mensual["mes"].dt.strftime("%B %Y").apply(
-        lambda x: meses_es.get(x.split()[0], x.split()[0]) + " " + x.split()[1]
+# -----------------------------
+# Carga y normalización
+# -----------------------------
+@st.cache_data
+def cargar_tracker(path: str = FILE_PATH, sheet: str = COL_SHEET) -> pd.DataFrame:
+    try:
+        df = pd.read_excel(path, sheet_name=sheet)
+    except Exception as e:
+        st.warning(f"No se pudo cargar {path} ({sheet}): {e}")
+        return pd.DataFrame()
+
+    # Homogeneiza nombres de columnas frecuentes
+    lower = {c.lower().strip(): c for c in df.columns}
+    ren = {}
+    # Predicción con/ sin tilde -> Prediccion
+    pred_col = lower.get("prediccion") or lower.get("predicción")
+    if pred_col and pred_col != "Prediccion":
+        ren[pred_col] = "Prediccion"
+    # Resultado_Real variaciones
+    rr_col = lower.get("resultado_real") or lower.get("resultado real")
+    if rr_col and rr_col != "Resultado_Real":
+        ren[rr_col] = "Resultado_Real"
+    # Estándares
+    for target in ["Date", "Liga", "Local", "Visitante", "Status", "Result", "Profit", "ROI", "Stake", "Cuota_Bet365", "Enviado"]:
+        lc = target.lower()
+        if lc in lower and lower[lc] != target:
+            ren[lower[lc]] = target
+
+    if ren:
+        df = df.rename(columns=ren)
+
+    # Fecha
+    if "Date" in df.columns:
+        df["fecha"] = pd.to_datetime(df["Date"], errors="coerce")
+    else:
+        df["fecha"] = pd.NaT
+
+    # Numéricos
+    if "Profit" in df.columns:
+        df["Profit"] = pd.to_numeric(df["Profit"], errors="coerce")
+    else:
+        df["Profit"] = np.nan
+
+    if "ROI" in df.columns:
+        # ROI puede venir como % o número; lo dejamos en porcentaje (p.ej., 12.5)
+        roi_num = df["ROI"].apply(lambda x: _to_float(x))
+        # Si parece fracción (<=1) lo convertimos a %
+        df["ROI"] = np.where(roi_num <= 1, roi_num * 100.0, roi_num)
+    else:
+        df["ROI"] = np.nan
+
+    # Campos de texto principales asegurados
+    for c in ["Liga", "Local", "Visitante", "Prediccion", "Result", "Resultado_Real", "Status"]:
+        if c not in df.columns:
+            df[c] = ""
+
+    # Normaliza status
+    df["Status_norm"] = df["Status"].astype(str).str.strip().str.lower()
+
+    # Acierto/Fallo: algunos flujos escriben 'Acierto'/'Fallo' ahí.
+    df["Resultado_Real"] = df["Resultado_Real"].astype(str).str.strip()
+
+    # Resultado real oficial del partido (de API) está en 'Result'
+    df["Result"] = df["Result"].astype(str).strip()
+
+    # Predicción normalizada (si hiciera falta para comparaciones)
+    df["Prediccion_norm"] = df["Prediccion"].apply(_norm_outcome)
+    df["Result_norm"] = df["Result"].apply(_norm_outcome)
+
+    return df
+
+df = cargar_tracker()
+
+if df.empty:
+    st.stop()
+
+# -----------------------------
+# Filtros
+# -----------------------------
+st.sidebar.header("Filtros")
+
+min_date = df["fecha"].min()
+max_date = df["fecha"].max()
+if pd.isna(min_date) or pd.isna(max_date):
+    # fallback si las fechas no están
+    min_date = pd.Timestamp.today() - pd.Timedelta(days=30)
+    max_date = pd.Timestamp.today()
+
+fecha_inicio = st.sidebar.date_input("Desde", value=min_date.date())
+fecha_fin = st.sidebar.date_input("Hasta", value=max_date.date())
+
+ligas = sorted([x for x in df["Liga"].dropna().unique().tolist() if x != ""])
+liga_sel = st.sidebar.multiselect("Ligas", options=ligas, default=ligas)
+
+equipos = sorted(set(df["Local"].dropna().unique()) | set(df["Visitante"].dropna().unique()))
+equipo_sel = st.sidebar.selectbox("Filtrar por equipo", ["Todos"] + equipos)
+
+status_opts = ["Todos", "Pending", "Completed"]
+status_sel = st.sidebar.selectbox("Estado", status_opts, index=2)  # por defecto 'Completed'
+
+filtro = (df["fecha"] >= pd.to_datetime(fecha_inicio)) & (df["fecha"] <= pd.to_datetime(fecha_fin))
+if liga_sel:
+    filtro &= df["Liga"].isin(liga_sel)
+if equipo_sel != "Todos":
+    filtro &= (df["Local"] == equipo_sel) | (df["Visitante"] == equipo_sel)
+
+if status_sel != "Todos":
+    filtro &= (df["Status_norm"] == status_sel.lower())
+
+df_filtrado = df[filtro].copy()
+
+# -----------------------------
+# Preparar conjunto validado (evaluadas)
+# -----------------------------
+# Consideramos evaluadas las que están 'Completed' y tienen Profit no nulo
+df_validadas = df_filtrado[df_filtrado["Status_norm"] == "completed"].copy()
+# En algunos casos ROI/Profit pueden ser NaN si no se pudo calcular; filtramos por Profit no NaN para los KPIs
+df_validadas = df_validadas[pd.notna(df_validadas["Profit"])]
+
+# -----------------------------
+# KPIs
+# -----------------------------
+total_apuestas = len(df_validadas)
+total_unidades = df_validadas["Profit"].sum() if total_apuestas else 0.0
+yield_total = (total_unidades / total_apuestas) if total_apuestas else 0.0
+
+ganancias = df_validadas.loc[df_validadas["Profit"] > 0, "Profit"].sum()
+perdidas = -df_validadas.loc[df_validadas["Profit"] < 0, "Profit"].sum()
+profit_factor = (ganancias / perdidas) if perdidas > 0 else float("inf")
+
+# Aciertos/Fallos (Resultado_Real contiene 'Acierto'/'Fallo')
+aciertos_totales = (df_validadas["Resultado_Real"].str.lower() == "acierto").sum()
+fallos_totales = (df_validadas["Resultado_Real"].str.lower() == "fallo").sum()
+
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("🎯 Apuestas evaluadas", total_apuestas)
+col2.metric("✅ Aciertos", int(aciertos_totales))
+col3.metric("💸 Unidades ganadas", round(float(total_unidades), 2))
+col4.metric("📈 Yield", f"{round(100 * yield_total, 2)}%")
+col5.metric("📊 Profit Factor", round(profit_factor, 2) if profit_factor != float("inf") else "∞")
+
+# -----------------------------
+# Resumen mensual
+# -----------------------------
+if not df_validadas.empty:
+    df_validadas["mes"] = df_validadas["fecha"].dt.to_period("M").dt.to_timestamp()
+
+    resumen_mensual = df_validadas.groupby("mes", as_index=False).agg(
+        Apuestas=("Profit", "count"),
+        Aciertos=("Resultado_Real", lambda x: (x.str.lower() == "acierto").sum()),
+        Fallos=("Resultado_Real", lambda x: (x.str.lower() == "fallo").sum()),
+        Unidades=("Profit", "sum"),
     )
+    resumen_mensual["yield_num"] = resumen_mensual["Unidades"] / resumen_mensual["Apuestas"]
+    resumen_mensual["Mes"] = resumen_mensual["mes"].dt.strftime("%B").map(MESES_ES)
+    resumen_mensual["Yield"] = (resumen_mensual["yield_num"] * 100).round(2).astype(str) + "%"
+    resumen_mensual = resumen_mensual.drop(columns=["yield_num", "mes"])
 
-    # Formatear para mostrar
-    resumen_display = resumen_mensual[['Mes', 'predicciones', 'aciertos', 'fallos', 'unidades', 'yield', 'accuracy']].copy()
-    resumen_display.columns = ['Mes', 'Predicciones', 'Aciertos', 'Fallos', 'Unidades', 'Yield (%)', 'Accuracy (%)']
-    resumen_display['Unidades'] = resumen_display['Unidades'].round(2)
+    st.subheader("📆 Resumen mensual")
+    st.dataframe(resumen_mensual[["Mes", "Apuestas", "Aciertos", "Fallos", "Unidades", "Yield"]],
+                 use_container_width=True)
+else:
+    st.info("No hay apuestas evaluadas en el rango/ filtros actuales para el resumen mensual.")
 
-    st.dataframe(resumen_display, use_container_width=True)
-
-with tab2:
-    df_filtrado["semana"] = df_filtrado["Date"].dt.to_period("W").apply(lambda r: r.start_time)
-
-    resumen_semanal = df_filtrado.groupby("semana").agg({
-        'Profit': 'sum'
-    }).reset_index()
-    resumen_semanal.columns = ['semana', 'unidades']
+# -----------------------------
+# Gráfico semanal: unidades y acumuladas
+# -----------------------------
+st.subheader("📈 Evolución semanal de unidades")
+if not df_validadas.empty:
+    df_validadas["semana"] = df_validadas["fecha"].dt.to_period("W").apply(lambda r: r.start_time)
+    resumen_semanal = df_validadas.groupby("semana", as_index=False).agg(unidades=("Profit", "sum"))
     resumen_semanal["unidades_acumuladas"] = resumen_semanal["unidades"].cumsum()
 
     fig = go.Figure()
-
-    # Barras: unidades por semana
     fig.add_trace(go.Bar(
         x=resumen_semanal["semana"],
         y=resumen_semanal["unidades"],
         name="Unidades semanales",
-        yaxis="y1",
-        marker_color=['green' if x >= 0 else 'red' for x in resumen_semanal["unidades"]]
+        yaxis="y1"
     ))
-
-    # Línea: unidades acumuladas
     fig.add_trace(go.Scatter(
         x=resumen_semanal["semana"],
         y=resumen_semanal["unidades_acumuladas"],
         name="Unidades acumuladas",
         yaxis="y2",
-        mode="lines+markers",
-        line=dict(color='blue', width=3)
+        mode="lines+markers"
     ))
-
     fig.update_layout(
-        title="📈 Evolución semanal de unidades",
         xaxis_title="Semana",
         yaxis=dict(title="Unidades semanales", side="left"),
         yaxis2=dict(title="Unidades acumuladas", overlaying="y", side="right"),
         legend=dict(x=0.01, y=0.99),
+        barmode="group",
         height=500
     )
-
     st.plotly_chart(fig, use_container_width=True)
+else:
+    st.info("No hay datos suficientes para el gráfico semanal con los filtros actuales.")
 
-# -------------------------
-# Análisis detallados
-# -------------------------
-st.subheader("🔍 Análisis Detallado")
+# -----------------------------
+# Historial detallado
+# -----------------------------
+st.subheader("📋 Historial completo de apuestas")
 
-tab1, tab2, tab3 = st.tabs(["🏆 Por Liga/Competición", "📊 Distribuciones", "🎯 Tipos de Apuesta"])
+# Construye columnas legibles para la tabla
+df_hist = df_filtrado.copy()
+# Si quieres mostrar solo evaluadas, descomenta la línea:
+# df_hist = df_hist[df_hist["Status_norm"] == "completed"].copy()
 
-with tab1:
-    analisis_liga = df_filtrado.groupby('Liga').agg({
-        'Profit': ['count', 'sum', 'mean'],
-        'Acierto': lambda x: (x == True).sum(),
-        'ROI': 'mean'
-    }).round(2)
-    
-    analisis_liga.columns = ['Predicciones', 'Unidades_Total', 'Unidades_Promedio', 'Aciertos', 'ROI_Promedio']
-    analisis_liga['Porcentaje_Aciertos'] = (analisis_liga['Aciertos'] / analisis_liga['Predicciones'] * 100).round(1)
-    analisis_liga['Yield'] = (analisis_liga['Unidades_Total'] / analisis_liga['Predicciones'] * 100).round(2)
-    
-    # Reordenar columnas
-    analisis_liga = analisis_liga[['Predicciones', 'Aciertos', 'Porcentaje_Aciertos', 'Unidades_Total', 'Unidades_Promedio', 'Yield', 'ROI_Promedio']]
-    
-    st.dataframe(analisis_liga.sort_values('Yield', ascending=False), use_container_width=True)
+# Selección y renombrado
+df_hist = df_hist.sort_values("fecha", ascending=False)
+cols_existentes = df_hist.columns
 
-with tab2:
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Distribución de profits
-        fig_profit = px.histogram(
-            df_filtrado, 
-            x='Profit', 
-            title="💰 Distribución de Profit",
-            nbins=20,
-            color_discrete_sequence=['green']
-        )
-        st.plotly_chart(fig_profit, use_container_width=True)
-    
-    with col2:
-        # Distribución de ROI
-        fig_roi = px.histogram(
-            df_filtrado, 
-            x='ROI', 
-            title="📊 Distribución de ROI",
-            nbins=20,
-            color_discrete_sequence=['blue']
-        )
-        st.plotly_chart(fig_roi, use_container_width=True)
+cols_table = []
+for c in ["fecha", "Liga", "Local", "Visitante", "Prediccion", "Result", "Resultado_Real", "Cuota_Bet365", "Stake", "Profit", "ROI", "Status", "Enviado"]:
+    if c in cols_existentes:
+        cols_table.append(c)
 
-with tab3:
-    tipo_apuesta_counts = df_filtrado['Predicción'].value_counts()
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        fig_tipos = px.pie(
-            values=tipo_apuesta_counts.values,
-            names=tipo_apuesta_counts.index,
-            title="🎯 Distribución de Tipos de Predicción"
-        )
-        st.plotly_chart(fig_tipos, use_container_width=True)
-    
-    with col2:
-        rendimiento_tipo = df_filtrado.groupby('Predicción').agg({
-            'Profit': ['sum', 'mean', 'count'],
-            'Acierto': lambda x: (x == True).sum()
-        }).round(2)
-        
-        rendimiento_tipo.columns = ['Total', 'Promedio', 'Cantidad', 'Aciertos']
-        rendimiento_tipo['Accuracy'] = (rendimiento_tipo['Aciertos'] / rendimiento_tipo['Cantidad'] * 100).round(1)
-        rendimiento_tipo['Yield'] = (rendimiento_tipo['Total'] / rendimiento_tipo['Cantidad'] * 100).round(2)
-        
-        st.write("**Rendimiento por tipo de predicción:**")
-        st.dataframe(rendimiento_tipo.sort_values('Total', ascending=False))
-
-# -------------------------
-# Tabla de historial detallado
-# -------------------------
-st.subheader("📋 Historial Completo de Resultados")
-
-# Preparar datos para mostrar
-df_display = df_filtrado.copy()
-df_display['Date'] = df_display['Date'].dt.strftime('%Y-%m-%d')
-df_display['Acierto'] = df_display['Acierto'].map({True: '✅', False: '❌'})
-df_display['Profit'] = df_display['Profit'].round(2)
-df_display['ROI'] = df_display['ROI'].round(2)
-
-# Reordenar columnas para mejor visualización
-columnas_display = ['Date', 'Liga', 'Local', 'Visitante', 'Predicción', 'Resultado_Real', 'Acierto', 'Profit', 'ROI']
-df_display = df_display[columnas_display]
-
-# Ordenar por fecha (más recientes primero)
-df_display = df_display.sort_values('Date', ascending=False)
-
-st.dataframe(df_display, use_container_width=True)
+st.dataframe(df_hist[cols_table], use_container_width=True)
